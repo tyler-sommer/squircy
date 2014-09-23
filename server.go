@@ -99,5 +99,6 @@ func (h *NickservAuth) Matches(e *irc.Event) bool {
 }
 
 func (h *NickservAuth) Handle(man *Manager) {
+	man.Remove(h)
 	man.conn.Privmsgf("NickServ", "IDENTIFY %s", man.config.Password)
 }
