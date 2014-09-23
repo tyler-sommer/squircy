@@ -19,7 +19,7 @@ type Configuration struct {
 type Handler interface {
 	Id() string
 	Matches(e *irc.Event) bool
-	Handle(man *Manager)
+	Handle(man *Manager, e *irc.Event)
 }
 
 type Manager struct {
@@ -44,6 +44,7 @@ func NewManager(conn *irc.Connection, config Configuration) *Manager {
 	man := &Manager{conn, config, make(map[string]Handler, 4)}
 
 	man.Add(&NickservAuth{})
+	man.Add(&AliasHandler{make(map[string]string, 4)})
 
 	return man
 }
@@ -75,7 +76,7 @@ func main() {
 	matchAndHandle := func(e *irc.Event) {
 		for _, h := range man.handlers {
 			if h.Matches(e) {
-				h.Handle(man)
+				h.Handle(man, e)
 			}
 		}
 	}
@@ -88,6 +89,14 @@ func main() {
 	conn.Loop()
 }
 
+func ReplyTarget(e *irc.Event) string {
+	if strings.HasPrefix(e.Arguments[0], "#") {
+		return e.Arguments[0]
+	} else {
+		return e.Nick
+	}
+}
+
 type NickservAuth struct{}
 
 func (h *NickservAuth) Id() string {
@@ -98,7 +107,40 @@ func (h *NickservAuth) Matches(e *irc.Event) bool {
 	return strings.Contains(strings.ToLower(e.Message()), "identify") && e.User == "NickServ"
 }
 
-func (h *NickservAuth) Handle(man *Manager) {
+func (h *NickservAuth) Handle(man *Manager, e *irc.Event) {
 	man.Remove(h)
 	man.conn.Privmsgf("NickServ", "IDENTIFY %s", man.config.Password)
+}
+
+type AliasHandler struct{
+	aliases map[string]string
+}
+
+func (h *AliasHandler) Id() string {
+	return "alias"
+}
+
+func (h *AliasHandler) Matches(e *irc.Event) bool {
+	return strings.HasPrefix(strings.ToLower(e.Message()), "!")
+}
+
+func (h *AliasHandler) Handle(man *Manager, e *irc.Event) {
+	fields := strings.Fields(e.Message())
+	command := fields[0][1:]
+	message, ok := h.aliases[command]
+	switch {
+	case ok:
+		man.conn.Privmsgf(ReplyTarget(e), message)
+		
+		break;
+	case fields[0] != "!alias":
+		break
+		
+		
+	case fields[1] == "add":
+		man.conn.Privmsgf(ReplyTarget(e), "Adding %s", fields[2:])
+		h.aliases[fields[2]] = strings.Join(fields[3:], " ")
+
+		break
+	}
 }
