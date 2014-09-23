@@ -1,36 +1,39 @@
 package main
 
 import (
+	"fmt"
 	"github.com/thoj/go-ircevent"
 	"strings"
-	"fmt"
 )
 
-type handler func(conn *irc.Connection) 
-type matcherFn func(man *manager, e *irc.Event) handler
-type matcher struct {
-	id string
-	mFn matcherFn
-}
-type manager struct {
-	matchers map[string]matcher
+type Handler interface {
+	Id() string
+	Matches(e *irc.Event) bool
+	Handle(man *Manager)
 }
 
-func (man *manager) remove(id string) {
-	if _, ok := man.matchers[id]; ok {
-		delete(man.matchers, id)
+type Manager struct {
+	conn     *irc.Connection
+	handlers map[string]Handler
+}
+
+func (man *Manager) Remove(h Handler) {
+	fmt.Println("Removing handler ", h.Id())
+	if _, ok := man.handlers[h.Id()]; ok {
+		delete(man.handlers, h.Id())
 	}
 }
 
-func (man *manager) add(m matcher) {
-	man.matchers[m.id] = m
+func (man *Manager) Add(h Handler) {
+	fmt.Println("Adding handler ", h.Id())
+	man.handlers[h.Id()] = h
 }
 
-func NewManager() *manager {
-	man := &manager{make(map[string]matcher, 4)}
-	
-	man.add(matcher{"nsauth", matchNickservAuth})
-	
+func NewManager(conn *irc.Connection) *Manager {
+	man := &Manager{conn, make(map[string]Handler, 4)}
+
+	man.Add(&NickservAuth{})
+
 	return man
 }
 
@@ -38,41 +41,40 @@ func main() {
 	conn := irc.IRC("squishyj", "squishyj")
 	conn.Debug = true
 	conn.VerboseCallbackHandler = true
-	
+
 	err := conn.Connect("irc.freenode.net:6667")
 	if err != nil {
 		panic(err)
 	}
-	
-	man := NewManager()
-	
+
+	man := NewManager(conn)
+
 	matchAndHandle := func(e *irc.Event) {
-		for _, m := range man.matchers {
-			h := m.mFn(man, e)
-			if h != nil {
-				h(conn)
+		for _, h := range man.handlers {
+			if h.Matches(e) {
+				h.Handle(man)
 			}
 		}
 	}
-		
+
 	conn.AddCallback("001", func(e *irc.Event) { conn.Join("#squishyslab") })
-	
+
 	conn.AddCallback("PRIVMSG", matchAndHandle)
 	conn.AddCallback("NOTICE", matchAndHandle)
-	
+
 	conn.Loop()
 }
 
-func matchNickservAuth(man *manager, e *irc.Event) handler {
-	if strings.Contains(strings.ToLower(e.Message()), "identify") && e.User == "NickServ" {
-		man.remove("nsauth")
-		
-		return authNickserv
-	}
-	
-	return nil
+type NickservAuth struct{}
+
+func (h *NickservAuth) Id() string {
+	return "nsauth"
 }
 
-func authNickserv(conn *irc.Connection) {
-	conn.Privmsg("NickServ", "IDENTIFY user password")
+func (h *NickservAuth) Matches(e *irc.Event) bool {
+	return strings.Contains(strings.ToLower(e.Message()), "identify") && e.User == "NickServ"
+}
+
+func (h *NickservAuth) Handle(man *Manager) {
+	man.conn.Privmsg("NickServ", "IDENTIFY user password")
 }
