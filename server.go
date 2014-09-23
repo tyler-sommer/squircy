@@ -1,10 +1,20 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/thoj/go-ircevent"
+	"os"
 	"strings"
 )
+
+type Configuration struct {
+	Network  string
+	Nick     string
+	Username string
+	Password string
+	Channel  string
+}
 
 type Handler interface {
 	Id() string
@@ -14,6 +24,7 @@ type Handler interface {
 
 type Manager struct {
 	conn     *irc.Connection
+	config   Configuration
 	handlers map[string]Handler
 }
 
@@ -29,8 +40,8 @@ func (man *Manager) Add(h Handler) {
 	man.handlers[h.Id()] = h
 }
 
-func NewManager(conn *irc.Connection) *Manager {
-	man := &Manager{conn, make(map[string]Handler, 4)}
+func NewManager(conn *irc.Connection, config Configuration) *Manager {
+	man := &Manager{conn, config, make(map[string]Handler, 4)}
 
 	man.Add(&NickservAuth{})
 
@@ -38,16 +49,28 @@ func NewManager(conn *irc.Connection) *Manager {
 }
 
 func main() {
-	conn := irc.IRC("squishyj", "squishyj")
+	file, err := os.Open("config.json")
+	if err != nil {
+		panic("Could not open config.json: " + err.Error())
+	}
+
+	decoder := json.NewDecoder(file)
+
+	config := Configuration{}
+	if err := decoder.Decode(&config); err != nil {
+		panic("Could not decode config.json: " + err.Error())
+	}
+
+	conn := irc.IRC(config.Nick, config.Username)
 	conn.Debug = true
 	conn.VerboseCallbackHandler = true
 
-	err := conn.Connect("irc.freenode.net:6667")
+	err = conn.Connect(config.Network)
 	if err != nil {
 		panic(err)
 	}
 
-	man := NewManager(conn)
+	man := NewManager(conn, config)
 
 	matchAndHandle := func(e *irc.Event) {
 		for _, h := range man.handlers {
@@ -57,7 +80,7 @@ func main() {
 		}
 	}
 
-	conn.AddCallback("001", func(e *irc.Event) { conn.Join("#squishyslab") })
+	conn.AddCallback("001", func(e *irc.Event) { conn.Join(config.Channel) })
 
 	conn.AddCallback("PRIVMSG", matchAndHandle)
 	conn.AddCallback("NOTICE", matchAndHandle)
@@ -76,5 +99,5 @@ func (h *NickservAuth) Matches(e *irc.Event) bool {
 }
 
 func (h *NickservAuth) Handle(man *Manager) {
-	man.conn.Privmsg("NickServ", "IDENTIFY user password")
+	man.conn.Privmsgf("NickServ", "IDENTIFY %s", man.config.Password)
 }
