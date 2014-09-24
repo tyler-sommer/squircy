@@ -43,7 +43,7 @@ func (man *Manager) Add(h Handler) {
 func NewManager(conn *irc.Connection, config Configuration) *Manager {
 	man := &Manager{conn, config, make(map[string]Handler, 4)}
 
-	man.Add(&NickservAuth{})
+	man.Add(&NickservHandler{})
 	man.Add(&AliasHandler{make(map[string]string, 4)})
 
 	return man
@@ -97,17 +97,17 @@ func replyTarget(e *irc.Event) string {
 	}
 }
 
-type NickservAuth struct{}
+type NickservHandler struct{}
 
-func (h *NickservAuth) Id() string {
-	return "nsauth"
+func (h *NickservHandler) Id() string {
+	return "nickserv"
 }
 
-func (h *NickservAuth) Matches(e *irc.Event) bool {
+func (h *NickservHandler) Matches(e *irc.Event) bool {
 	return strings.Contains(strings.ToLower(e.Message()), "identify") && e.User == "NickServ"
 }
 
-func (h *NickservAuth) Handle(man *Manager, e *irc.Event) {
+func (h *NickservHandler) Handle(man *Manager, e *irc.Event) {
 	man.Remove(h)
 	man.conn.Privmsgf("NickServ", "IDENTIFY %s", man.config.Password)
 }
