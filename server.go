@@ -89,7 +89,7 @@ func main() {
 	conn.Loop()
 }
 
-func ReplyTarget(e *irc.Event) string {
+func replyTarget(e *irc.Event) string {
 	if strings.HasPrefix(e.Arguments[0], "#") {
 		return e.Arguments[0]
 	} else {
@@ -130,7 +130,7 @@ func (h *AliasHandler) Handle(man *Manager, e *irc.Event) {
 	message, ok := h.aliases[command]
 	switch {
 	case ok:
-		man.conn.Privmsgf(ReplyTarget(e), message)
+		man.conn.Privmsgf(replyTarget(e), message)
 		
 		break;
 	case fields[0] != "!alias":
@@ -138,7 +138,7 @@ func (h *AliasHandler) Handle(man *Manager, e *irc.Event) {
 		
 		
 	case fields[1] == "add":
-		man.conn.Privmsgf(ReplyTarget(e), "Adding %s", fields[2:])
+		man.conn.Privmsgf(replyTarget(e), "Adding %s", fields[2:])
 		h.aliases[fields[2]] = strings.Join(fields[3:], " ")
 
 		break
