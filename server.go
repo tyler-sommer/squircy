@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/robertkrimen/otto"
 	"github.com/thoj/go-ircevent"
 	"os"
 	"strings"
@@ -46,6 +47,7 @@ func NewManager(conn *irc.Connection, config Configuration) *Manager {
 
 	man.Add(&NickservHandler{})
 	man.Add(&AliasHandler{make(map[string]string, 4)})
+	man.Add(&JavascriptHandler{otto.New()})
 
 	return man
 }
@@ -106,10 +108,10 @@ func parseCommand(msg string) (string, []string) {
 	if len(fields) < 1 {
 		panic("No command")
 	}
-	
+
 	command := fields[0][1:]
 	args := fields[1:]
-	
+
 	return command, args
 }
 
@@ -128,7 +130,7 @@ func (h *NickservHandler) Handle(man *Manager, e *irc.Event) {
 	man.conn.Privmsgf("NickServ", "IDENTIFY %s", man.config.Password)
 }
 
-type AliasHandler struct{
+type AliasHandler struct {
 	aliases map[string]string
 }
 
@@ -142,25 +144,49 @@ func (h *AliasHandler) Matches(e *irc.Event) bool {
 
 func (h *AliasHandler) Handle(man *Manager, e *irc.Event) {
 	command, args := parseCommand(e.Message())
-	
+
 	message, ok := h.aliases[command]
 	switch {
 	case command == "alias":
 		if len(args) < 2 {
 			man.conn.Privmsgf(replyTarget(e), "Usage: !alias <add/remove> name [message]")
-			
+
 		} else if args[0] == "add" {
 			h.aliases[args[1]] = strings.Join(args[2:], " ")
 			man.conn.Privmsgf(replyTarget(e), "Added '%s'", args[1])
-			
+
 		} else if args[0] == "remove" {
 			if _, ok := h.aliases[args[1]]; ok {
 				delete(h.aliases, args[1])
 				man.conn.Privmsgf(replyTarget(e), "Removed '%s'", args[1])
 			}
-		}		
-		
+		}
+
 	case ok:
 		man.conn.Privmsgf(replyTarget(e), message)
 	}
+}
+
+type JavascriptHandler struct {
+	vm *otto.Otto
+}
+
+func (h *JavascriptHandler) Id() string {
+	return "js"
+}
+
+func (h *JavascriptHandler) Matches(e *irc.Event) bool {
+	return strings.HasPrefix(strings.ToLower(e.Message()), "!eval")
+}
+
+func (h *JavascriptHandler) Handle(man *Manager, e *irc.Event) {
+	fields := strings.Fields(e.Message())
+
+	value, err := h.vm.Run(strings.Join(fields[1:], " "))
+	if err != nil {
+		man.conn.Privmsgf(replyTarget(e), err.Error())
+
+		return
+	}
+	man.conn.Privmsgf(replyTarget(e), value.String())
 }
