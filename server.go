@@ -97,6 +97,18 @@ func replyTarget(e *irc.Event) string {
 	}
 }
 
+func parseCommand(msg string) (string, []string) {
+	fields := strings.Fields(msg)
+	if len(fields) < 1 {
+		panic("No command")
+	}
+	
+	command := fields[0][1:]
+	args := fields[1:]
+	
+	return command, args
+}
+
 type NickservHandler struct{}
 
 func (h *NickservHandler) Id() string {
@@ -125,22 +137,26 @@ func (h *AliasHandler) Matches(e *irc.Event) bool {
 }
 
 func (h *AliasHandler) Handle(man *Manager, e *irc.Event) {
-	fields := strings.Fields(e.Message())
-	command := fields[0][1:]
+	command, args := parseCommand(e.Message())
+	
 	message, ok := h.aliases[command]
 	switch {
+	case command == "alias":
+		if len(args) < 2 {
+			man.conn.Privmsgf(replyTarget(e), "Usage: !alias <add/remove> name [message]")
+			
+		} else if args[0] == "add" {
+			h.aliases[args[1]] = strings.Join(args[2:], " ")
+			man.conn.Privmsgf(replyTarget(e), "Added '%s'", fields[2])
+			
+		} else if args[0] == "remove" {
+			if _, ok := h.aliases[fields[2]]; ok {
+				delete(h.aliases, fields[2])
+				man.conn.Privmsgf(replyTarget(e), "Removed '%s'", fields[2])
+			}
+		}		
+		
 	case ok:
 		man.conn.Privmsgf(replyTarget(e), message)
-		
-		break;
-	case fields[0] != "!alias":
-		break
-		
-		
-	case fields[1] == "add":
-		man.conn.Privmsgf(replyTarget(e), "Adding %s", fields[2:])
-		h.aliases[fields[2]] = strings.Join(fields[3:], " ")
-
-		break
 	}
 }
