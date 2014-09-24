@@ -147,12 +147,12 @@ func (h *AliasHandler) Handle(man *Manager, e *irc.Event) {
 			
 		} else if args[0] == "add" {
 			h.aliases[args[1]] = strings.Join(args[2:], " ")
-			man.conn.Privmsgf(replyTarget(e), "Added '%s'", fields[2])
+			man.conn.Privmsgf(replyTarget(e), "Added '%s'", args[1])
 			
 		} else if args[0] == "remove" {
-			if _, ok := h.aliases[fields[2]]; ok {
-				delete(h.aliases, fields[2])
-				man.conn.Privmsgf(replyTarget(e), "Removed '%s'", fields[2])
+			if _, ok := h.aliases[args[1]]; ok {
+				delete(h.aliases, args[1])
+				man.conn.Privmsgf(replyTarget(e), "Removed '%s'", args[1])
 			}
 		}		
 		
