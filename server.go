@@ -6,6 +6,7 @@ import (
 	"github.com/thoj/go-ircevent"
 	"os"
 	"strings"
+	"sync"
 )
 
 type Configuration struct {
@@ -73,12 +74,21 @@ func main() {
 
 	man := NewManager(conn, config)
 
+	mutex := &sync.Mutex{}
 	matchAndHandle := func(e *irc.Event) {
+		mutex.Lock()
+		wg := sync.WaitGroup{}
 		for _, h := range man.handlers {
 			if h.Matches(e) {
-				h.Handle(man, e)
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					h.Handle(man, e)
+				}()
 			}
 		}
+		wg.Wait()
+		mutex.Unlock()
 	}
 
 	conn.AddCallback("001", func(e *irc.Event) { conn.Join(config.Channel) })
