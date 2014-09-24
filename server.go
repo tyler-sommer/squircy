@@ -47,7 +47,7 @@ func NewManager(conn *irc.Connection, config Configuration) *Manager {
 
 	man.Add(&NickservHandler{})
 	man.Add(&AliasHandler{make(map[string]string, 4)})
-	man.Add(&JavascriptHandler{otto.New()})
+	man.Add(newJavascriptHandler())
 
 	return man
 }
@@ -167,6 +167,10 @@ func (h *AliasHandler) Handle(man *Manager, e *irc.Event) {
 	}
 }
 
+func newJavascriptHandler() *JavascriptHandler {
+	return &JavascriptHandler{otto.New()}
+}
+
 type JavascriptHandler struct {
 	vm *otto.Otto
 }
@@ -176,7 +180,7 @@ func (h *JavascriptHandler) Id() string {
 }
 
 func (h *JavascriptHandler) Matches(e *irc.Event) bool {
-	return strings.HasPrefix(strings.ToLower(e.Message()), "!eval")
+	return strings.HasPrefix(strings.ToLower(e.Message()), "!js")
 }
 
 func (h *JavascriptHandler) Handle(man *Manager, e *irc.Event) {
