@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/aarzilli/golua/lua"
 	"github.com/robertkrimen/otto"
 	"github.com/thoj/go-ircevent"
 	"os"
@@ -48,6 +49,7 @@ func NewManager(conn *irc.Connection, config Configuration) *Manager {
 	man.Add(&NickservHandler{})
 	man.Add(&AliasHandler{make(map[string]string, 4)})
 	man.Add(newJavascriptHandler())
+	man.Add(newLuaHandler())
 
 	return man
 }
@@ -193,4 +195,34 @@ func (h *JavascriptHandler) Handle(man *Manager, e *irc.Event) {
 		return
 	}
 	man.conn.Privmsgf(replyTarget(e), value.String())
+}
+
+func newLuaHandler() *LuaHandler {
+	return &LuaHandler{lua.NewState()}
+}
+
+type LuaHandler struct {
+	vm *lua.State
+}
+
+func (h *LuaHandler) Id() string {
+	return "lua"
+}
+
+func (h *LuaHandler) Matches(e *irc.Event) bool {
+	return strings.HasPrefix(strings.ToLower(e.Message()), "!lua")
+}
+
+func (h *LuaHandler) Handle(man *Manager, e *irc.Event) {
+	fields := strings.Fields(e.Message())
+	printFn := func(vm *lua.State) int {
+		o := vm.ToString(1)
+		man.conn.Privmsgf(replyTarget(e), o)
+		return 0
+	}
+	h.vm.Register("print", printFn)
+	err := h.vm.DoString(strings.Join(fields[1:], " "))
+	if err != nil {
+		man.conn.Privmsgf(replyTarget(e), err.Error())
+	}
 }
