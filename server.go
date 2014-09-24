@@ -77,17 +77,11 @@ func main() {
 	mutex := &sync.Mutex{}
 	matchAndHandle := func(e *irc.Event) {
 		mutex.Lock()
-		wg := sync.WaitGroup{}
 		for _, h := range man.handlers {
 			if h.Matches(e) {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					h.Handle(man, e)
-				}()
+				h.Handle(man, e)
 			}
 		}
-		wg.Wait()
 		mutex.Unlock()
 	}
 
