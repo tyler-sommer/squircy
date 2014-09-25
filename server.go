@@ -35,9 +35,15 @@ type Manager struct {
 }
 
 func (man *Manager) Remove(h Handler) {
-	fmt.Println("Removing handler ", h.Id())
 	if _, ok := man.handlers[h.Id()]; ok {
+		fmt.Println("Removing handler ", h.Id())
 		delete(man.handlers, h.Id())
+	}
+}
+
+func (man *Manager) RemoveId(id string) {
+	if handler, ok := man.handlers[id]; ok {
+		man.Remove(handler)
 	}
 }
 
@@ -112,7 +118,7 @@ func replyTarget(e *irc.Event) string {
 func parseCommand(msg string) (string, []string) {
 	fields := strings.Fields(msg)
 	if len(fields) < 1 {
-		panic("No command")
+		return "", nil
 	}
 
 	command := fields[0][1:]
