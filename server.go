@@ -25,7 +25,7 @@ type Configuration struct {
 type Handler interface {
 	Id() string
 	Matches(e *irc.Event) bool
-	Handle(man *Manager, e *irc.Event)
+	Handle(e *irc.Event)
 }
 
 type Manager struct {
@@ -55,11 +55,11 @@ func (man *Manager) Add(h Handler) {
 func NewManager(conn *irc.Connection, config Configuration) *Manager {
 	man := &Manager{conn, config, make(map[string]Handler, 4)}
 
-	man.Add(&NickservHandler{})
-	man.Add(&AliasHandler{make(map[string]string, 4)})
-	man.Add(newJavascriptHandler())
-	man.Add(newLuaHandler())
-	man.Add(newLispHandler())
+	man.Add(newNickservHandler(man))
+	man.Add(newAliasHandler(man))
+	man.Add(newJavascriptHandler(man))
+	man.Add(newLuaHandler(man))
+	man.Add(newLispHandler(man))
 
 	return man
 }
@@ -93,7 +93,7 @@ func main() {
 		mutex.Lock()
 		for _, h := range man.handlers {
 			if h.Matches(e) {
-				h.Handle(man, e)
+				h.Handle(e)
 			}
 		}
 		mutex.Unlock()
@@ -127,7 +127,13 @@ func parseCommand(msg string) (string, []string) {
 	return command, args
 }
 
-type NickservHandler struct{}
+func newNickservHandler(man *Manager) *NickservHandler {
+	return &NickservHandler{man}
+}
+
+type NickservHandler struct{
+	man *Manager
+}
 
 func (h *NickservHandler) Id() string {
 	return "nickserv"
@@ -137,12 +143,17 @@ func (h *NickservHandler) Matches(e *irc.Event) bool {
 	return strings.Contains(strings.ToLower(e.Message()), "identify") && e.User == "NickServ"
 }
 
-func (h *NickservHandler) Handle(man *Manager, e *irc.Event) {
-	man.Remove(h)
-	man.conn.Privmsgf("NickServ", "IDENTIFY %s", man.config.Password)
+func (h *NickservHandler) Handle(e *irc.Event) {
+	h.man.Remove(h)
+	h.man.conn.Privmsgf("NickServ", "IDENTIFY %s", h.man.config.Password)
+}
+
+func newAliasHandler(man *Manager) *AliasHandler {
+	return &AliasHandler{man, make(map[string]string, 4)}
 }
 
 type AliasHandler struct {
+	man *Manager
 	aliases map[string]string
 }
 
@@ -154,36 +165,37 @@ func (h *AliasHandler) Matches(e *irc.Event) bool {
 	return strings.HasPrefix(strings.ToLower(e.Message()), "!")
 }
 
-func (h *AliasHandler) Handle(man *Manager, e *irc.Event) {
+func (h *AliasHandler) Handle(e *irc.Event) {
 	command, args := parseCommand(e.Message())
 
 	message, ok := h.aliases[command]
 	switch {
 	case command == "alias":
 		if len(args) < 2 {
-			man.conn.Privmsgf(replyTarget(e), "Usage: !alias <add/remove> name [message]")
+			h.man.conn.Privmsgf(replyTarget(e), "Usage: !alias <add/remove> name [message]")
 
 		} else if args[0] == "add" {
 			h.aliases[args[1]] = strings.Join(args[2:], " ")
-			man.conn.Privmsgf(replyTarget(e), "Added '%s'", args[1])
+			h.man.conn.Privmsgf(replyTarget(e), "Added '%s'", args[1])
 
 		} else if args[0] == "remove" {
 			if _, ok := h.aliases[args[1]]; ok {
 				delete(h.aliases, args[1])
-				man.conn.Privmsgf(replyTarget(e), "Removed '%s'", args[1])
+				h.man.conn.Privmsgf(replyTarget(e), "Removed '%s'", args[1])
 			}
 		}
 
 	case ok:
-		man.conn.Privmsgf(replyTarget(e), message)
+		h.man.conn.Privmsgf(replyTarget(e), message)
 	}
 }
 
-func newJavascriptHandler() *JavascriptHandler {
-	return &JavascriptHandler{otto.New()}
+func newJavascriptHandler(man *Manager) *JavascriptHandler {
+	return &JavascriptHandler{man, otto.New()}
 }
 
 type JavascriptHandler struct {
+	man *Manager
 	vm *otto.Otto
 }
 
@@ -192,26 +204,27 @@ func (h *JavascriptHandler) Id() string {
 }
 
 func (h *JavascriptHandler) Matches(e *irc.Event) bool {
-	return strings.HasPrefix(strings.ToLower(e.Message()), "!js")
+	return strings.HasPrefix(strings.ToLower(e.Message()), "!js") && e.Nick == h.man.config.OwnerNick && e.Host == h.man.config.OwnerHost
 }
 
-func (h *JavascriptHandler) Handle(man *Manager, e *irc.Event) {
+func (h *JavascriptHandler) Handle(e *irc.Event) {
 	fields := strings.Fields(e.Message())
 
 	value, err := h.vm.Run(strings.Join(fields[1:], " "))
 	if err != nil {
-		man.conn.Privmsgf(replyTarget(e), err.Error())
+		h.man.conn.Privmsgf(replyTarget(e), err.Error())
 
 		return
 	}
-	man.conn.Privmsgf(replyTarget(e), value.String())
+	h.man.conn.Privmsgf(replyTarget(e), value.String())
 }
 
-func newLuaHandler() *LuaHandler {
-	return &LuaHandler{lua.NewState()}
+func newLuaHandler(man *Manager) *LuaHandler {
+	return &LuaHandler{man, lua.NewState()}
 }
 
 type LuaHandler struct {
+	man *Manager
 	vm *lua.State
 }
 
@@ -220,44 +233,51 @@ func (h *LuaHandler) Id() string {
 }
 
 func (h *LuaHandler) Matches(e *irc.Event) bool {
-	return strings.HasPrefix(strings.ToLower(e.Message()), "!lua")
+	return strings.HasPrefix(strings.ToLower(e.Message()), "!lua") && e.Nick == h.man.config.OwnerNick && e.Host == h.man.config.OwnerHost
 }
 
-func (h *LuaHandler) Handle(man *Manager, e *irc.Event) {
+func (h *LuaHandler) Handle(e *irc.Event) {
 	fields := strings.Fields(e.Message())
 	printFn := func(vm *lua.State) int {
 		o := vm.ToString(1)
-		man.conn.Privmsgf(replyTarget(e), o)
+		h.man.conn.Privmsgf(replyTarget(e), o)
 		return 0
 	}
 	h.vm.Register("print", printFn)
 	err := h.vm.DoString(strings.Join(fields[1:], " "))
 	if err != nil {
-		man.conn.Privmsgf(replyTarget(e), err.Error())
+		h.man.conn.Privmsgf(replyTarget(e), err.Error())
 	}
 }
 
-func newLispHandler() *LispHandler {
-	return &LispHandler{}
+func newLispHandler(man *Manager) *LispHandler {
+	return &LispHandler{man}
 }
 
-type LispHandler struct{}
+type LispHandler struct{
+	man *Manager
+}
 
 func (h *LispHandler) Id() string {
 	return "lisp"
 }
 
 func (h *LispHandler) Matches(e *irc.Event) bool {
-	return strings.HasPrefix(strings.ToLower(e.Message()), "!lisp")
+	return strings.HasPrefix(strings.ToLower(e.Message()), "!lisp") && e.Nick == h.man.config.OwnerNick && e.Host == h.man.config.OwnerHost
 }
 
-func (h *LispHandler) Handle(man *Manager, e *irc.Event) {
+func (h *LispHandler) Handle(e *irc.Event) {
 	fields := strings.Fields(e.Message())
 	val, err := lisp.EvalString(strings.Join(fields[1:], " "))
 	if err != nil {
-		man.conn.Privmsgf(replyTarget(e), err.Error())
+		h.man.conn.Privmsgf(replyTarget(e), err.Error())
 
 		return
 	}
-	man.conn.Privmsgf(replyTarget(e), val.String())
+	h.man.conn.Privmsgf(replyTarget(e), val.String())
+}
+
+		return
+	}
+	h.man.conn.Privmsgf(replyTarget(e), value.String())
 }
