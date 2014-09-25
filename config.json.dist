@@ -3,5 +3,7 @@
 	"Nick": "squishyj",
 	"Username": "squishy",
 	"Password": "somepassword",
-	"Channel": "#squishyslab"
+	"Channel": "#squishyslab",
+	"OwnerNick": "veonik",
+	"OwnerHost": "syncreticidiot.com"
 }

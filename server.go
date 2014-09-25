@@ -13,11 +13,13 @@ import (
 )
 
 type Configuration struct {
-	Network  string
-	Nick     string
-	Username string
-	Password string
-	Channel  string
+	Network   string
+	Nick      string
+	Username  string
+	Password  string
+	Channel   string
+	OwnerNick string
+	OwnerHost string
 }
 
 type Handler interface {
