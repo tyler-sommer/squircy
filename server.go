@@ -60,6 +60,7 @@ func NewManager(conn *irc.Connection, config Configuration) *Manager {
 	man.Add(newJavascriptHandler(man))
 	man.Add(newLuaHandler(man))
 	man.Add(newLispHandler(man))
+	man.Add(newScriptHandler(man))
 
 	return man
 }
@@ -277,7 +278,240 @@ func (h *LispHandler) Handle(e *irc.Event) {
 	h.man.conn.Privmsgf(replyTarget(e), val.String())
 }
 
+func newScriptHandler(man *Manager) *ScriptHandler {
+	luaVm := lua.NewState()
+	luaVm.OpenLibs()
+	
+	jsVm := otto.New()
+		
+	return &ScriptHandler{man, luaVm, jsVm, false, ""}
+}
+
+type ScriptHandler struct{
+	man *Manager
+	luaVm *lua.State
+	jsVm *otto.Otto
+	repl bool
+	replType string
+}
+
+func (h *ScriptHandler) Id() string {
+	return "scripting"
+}
+
+func (h *ScriptHandler) Matches(e *irc.Event) bool {
+	return e.Nick == h.man.config.OwnerNick && e.Host == h.man.config.OwnerHost
+}
+
+func replTypePretty(replType string) string {
+	switch {
+	case replType == "lua":
+		return "Lua"
+		
+	case replType == "js":
+		return "Javascript"
+		
+	case replType == "lisp":
+		return "Lisp"
+	}
+	
+	return "Unknown"
+}
+
+func (h *ScriptHandler) Handle(e *irc.Event) {
+	if h.repl == true {
+		msg := e.Message()
+		if strings.HasPrefix(msg, "!repl end") {
+			h.man.conn.Privmsgf(replyTarget(e), "%s REPL session ended.", replTypePretty(h.replType))
+			h.repl = false
+			h.replType = ""
+			return
+		}
+		
+		switch {
+		case h.replType == "lua":
+			typenameFn := func(vm *lua.State) int {
+				o := vm.Typename(int(vm.Type(1)))
+				h.luaVm.PushString(o)
+				return 1
+			}
+			h.luaVm.Register("typename", typenameFn)
+			printFn := func(vm *lua.State) int {
+				o := vm.ToString(1)
+				h.man.conn.Privmsgf(replyTarget(e), o)
+				return 0
+			}
+			h.luaVm.Register("print", printFn)
+			err := h.luaVm.DoString(msg)
+			if err != nil {
+				h.man.conn.Privmsgf(replyTarget(e), err.Error())
+			}
+			
+		case h.replType == "js":
+			value, err := h.jsVm.Run(msg)
+			if err != nil {
+				h.man.conn.Privmsgf(replyTarget(e), err.Error())
+
+				return
+			}
+			h.man.conn.Privmsgf(replyTarget(e), value.String())
+			
+		case h.replType == "lisp":
+			val, err := lisp.EvalString(msg)
+			if err != nil {
+				h.man.conn.Privmsgf(replyTarget(e), err.Error())
+
+				return
+			}
+			h.man.conn.Privmsgf(replyTarget(e), val.String())
+		}
+		
+		return
+	}
+	
+	switch command, args := parseCommand(e.Message()); {
+	case command == "":
+		break
+		
+	case command == "register":
+		if len(args) != 2 && (args[0] != "js" || args[0] != "lua" || args[0] != "lisp") {
+			h.man.conn.Privmsgf(replyTarget(e), "Invalid syntax. Usage: !register <js|lua|lisp> <fn name>")
+			
+			return
+		}
+		
+		switch {
+		case args[0] == "js":
+			handler := newJavascriptScript(h.man, h.jsVm, args[1])
+			h.man.Remove(handler)
+			h.man.Add(handler)
+			
+		case args[0] == "lua":
+			handler := newLuaScript(h.man, h.luaVm, args[1])
+			h.man.Remove(handler)
+			h.man.Add(handler)
+			
+		case args[0] == "lisp":
+			handler := newLispScript(h.man, args[1])
+			h.man.Remove(handler)
+			h.man.Add(handler)
+		}
+		
+	case command == "unregister":
+		if len(args) != 2 && (args[0] != "js" || args[0] != "lua" || args[0] != "lisp") {
+			h.man.conn.Privmsgf(replyTarget(e), "Invalid syntax. Usage: !unregister <js|lua|lisp> <fn name>")
+			
+			return
+		}
+		
+		switch {
+		case args[0] == "js":
+			h.man.conn.Privmsgf(replyTarget(e), "Unregistered Javsacript handler " + args[1])
+			h.man.RemoveId("js-" + args[1])
+			
+		case args[0] == "lua":
+			h.man.conn.Privmsgf(replyTarget(e), "Unregistered Lua handler " + args[1])
+			h.man.RemoveId("lua-" + args[1])
+			
+		case args[0] == "lisp":
+			h.man.conn.Privmsgf(replyTarget(e), "Unregistered Lisp handler " + args[1])
+			h.man.RemoveId("lisp-" + args[1])
+		}
+		
+	case command == "repl":
+		if len(args) != 1 && (args[0] != "js" || args[0] != "lua" || args[0] != "lisp") {
+			h.man.conn.Privmsgf(replyTarget(e), "Invalid syntax. Usage: !repl <js|lua|lisp>")
+			return
+		}
+		
+		h.repl = true
+		h.replType = args[0]
+		h.man.conn.Privmsgf(replyTarget(e), "%s REPL session started.", replTypePretty(h.replType))
+	}
+}
+
+func newJavascriptScript(man *Manager, vm *otto.Otto, fn string) *JavascriptScript {
+	return &JavascriptScript{man, vm, fn}
+}
+
+type JavascriptScript struct {
+	man *Manager
+	vm *otto.Otto
+	fn string
+}
+
+func (h *JavascriptScript) Id() string {
+	return "js-" + h.fn
+}
+
+func (h *JavascriptScript) Matches(e *irc.Event) bool {
+	return true
+}
+
+func (h *JavascriptScript) Handle(e *irc.Event) {
+	value, err := h.vm.Run(fmt.Sprintf("%s(\"%s\", \"%s\", \"%s\")", h.fn, e.Arguments[0], e.Nick, e.Message()))
+	if err != nil {
+		h.man.conn.Privmsgf(replyTarget(e), err.Error())
+
 		return
 	}
 	h.man.conn.Privmsgf(replyTarget(e), value.String())
+}
+
+func newLuaScript(man *Manager, vm *lua.State, fn string) *LuaScript {
+	return &LuaScript{man, vm, fn}
+}
+
+type LuaScript struct {
+	man *Manager
+	vm *lua.State
+	fn string
+}
+
+func (h *LuaScript) Id() string {
+	return "lua-" + h.fn
+}
+
+func (h *LuaScript) Matches(e *irc.Event) bool {
+	return true
+}
+
+func (h *LuaScript) Handle(e *irc.Event) {
+	printFn := func(vm *lua.State) int {
+		o := vm.ToString(1)
+		h.man.conn.Privmsgf(replyTarget(e), o)
+		return 0
+	}
+	h.vm.Register("print", printFn)
+	err := h.vm.DoString(fmt.Sprintf("%s(\"%s\", \"%s\", \"%s\")", h.fn, e.Arguments[0], e.Nick, e.Message()))
+	if err != nil {
+		h.man.conn.Privmsgf(replyTarget(e), err.Error())
+	}
+}
+
+func newLispScript(man *Manager, fn string) *LispScript {
+	return &LispScript{man, fn}
+}
+
+type LispScript struct {
+	man *Manager
+	fn string
+}
+
+func (h *LispScript) Id() string {
+	return "lisp-" + h.fn
+}
+
+func (h *LispScript) Matches(e *irc.Event) bool {
+	return true
+}
+
+func (h *LispScript) Handle(e *irc.Event) {
+	val, err := lisp.EvalString(fmt.Sprintf("(%s \"%s\" \"%s\" \"%s\")", h.fn, e.Arguments[0], e.Nick, e.Message()))
+	if err != nil {
+		h.man.conn.Privmsgf(replyTarget(e), err.Error())
+
+		return
+	}
+	h.man.conn.Privmsgf(replyTarget(e), val.String())
 }
