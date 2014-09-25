@@ -132,7 +132,7 @@ func newNickservHandler(man *Manager) *NickservHandler {
 	return &NickservHandler{man}
 }
 
-type NickservHandler struct{
+type NickservHandler struct {
 	man *Manager
 }
 
@@ -154,7 +154,7 @@ func newAliasHandler(man *Manager) *AliasHandler {
 }
 
 type AliasHandler struct {
-	man *Manager
+	man     *Manager
 	aliases map[string]string
 }
 
@@ -197,7 +197,7 @@ func newJavascriptHandler(man *Manager) *JavascriptHandler {
 
 type JavascriptHandler struct {
 	man *Manager
-	vm *otto.Otto
+	vm  *otto.Otto
 }
 
 func (h *JavascriptHandler) Id() string {
@@ -226,7 +226,7 @@ func newLuaHandler(man *Manager) *LuaHandler {
 
 type LuaHandler struct {
 	man *Manager
-	vm *lua.State
+	vm  *lua.State
 }
 
 func (h *LuaHandler) Id() string {
@@ -255,7 +255,7 @@ func newLispHandler(man *Manager) *LispHandler {
 	return &LispHandler{man}
 }
 
-type LispHandler struct{
+type LispHandler struct {
 	man *Manager
 }
 
@@ -281,17 +281,17 @@ func (h *LispHandler) Handle(e *irc.Event) {
 func newScriptHandler(man *Manager) *ScriptHandler {
 	luaVm := lua.NewState()
 	luaVm.OpenLibs()
-	
+
 	jsVm := otto.New()
-		
+
 	return &ScriptHandler{man, luaVm, jsVm, false, ""}
 }
 
-type ScriptHandler struct{
-	man *Manager
-	luaVm *lua.State
-	jsVm *otto.Otto
-	repl bool
+type ScriptHandler struct {
+	man      *Manager
+	luaVm    *lua.State
+	jsVm     *otto.Otto
+	repl     bool
 	replType string
 }
 
@@ -307,14 +307,14 @@ func replTypePretty(replType string) string {
 	switch {
 	case replType == "lua":
 		return "Lua"
-		
+
 	case replType == "js":
 		return "Javascript"
-		
+
 	case replType == "lisp":
 		return "Lisp"
 	}
-	
+
 	return "Unknown"
 }
 
@@ -327,7 +327,7 @@ func (h *ScriptHandler) Handle(e *irc.Event) {
 			h.replType = ""
 			return
 		}
-		
+
 		switch {
 		case h.replType == "lua":
 			typenameFn := func(vm *lua.State) int {
@@ -346,7 +346,7 @@ func (h *ScriptHandler) Handle(e *irc.Event) {
 			if err != nil {
 				h.man.conn.Privmsgf(replyTarget(e), err.Error())
 			}
-			
+
 		case h.replType == "js":
 			value, err := h.jsVm.Run(msg)
 			if err != nil {
@@ -355,7 +355,7 @@ func (h *ScriptHandler) Handle(e *irc.Event) {
 				return
 			}
 			h.man.conn.Privmsgf(replyTarget(e), value.String())
-			
+
 		case h.replType == "lisp":
 			val, err := lisp.EvalString(msg)
 			if err != nil {
@@ -365,65 +365,65 @@ func (h *ScriptHandler) Handle(e *irc.Event) {
 			}
 			h.man.conn.Privmsgf(replyTarget(e), val.String())
 		}
-		
+
 		return
 	}
-	
+
 	switch command, args := parseCommand(e.Message()); {
 	case command == "":
 		break
-		
+
 	case command == "register":
 		if len(args) != 2 && (args[0] != "js" || args[0] != "lua" || args[0] != "lisp") {
 			h.man.conn.Privmsgf(replyTarget(e), "Invalid syntax. Usage: !register <js|lua|lisp> <fn name>")
-			
+
 			return
 		}
-		
+
 		switch {
 		case args[0] == "js":
 			handler := newJavascriptScript(h.man, h.jsVm, args[1])
 			h.man.Remove(handler)
 			h.man.Add(handler)
-			
+
 		case args[0] == "lua":
 			handler := newLuaScript(h.man, h.luaVm, args[1])
 			h.man.Remove(handler)
 			h.man.Add(handler)
-			
+
 		case args[0] == "lisp":
 			handler := newLispScript(h.man, args[1])
 			h.man.Remove(handler)
 			h.man.Add(handler)
 		}
-		
+
 	case command == "unregister":
 		if len(args) != 2 && (args[0] != "js" || args[0] != "lua" || args[0] != "lisp") {
 			h.man.conn.Privmsgf(replyTarget(e), "Invalid syntax. Usage: !unregister <js|lua|lisp> <fn name>")
-			
+
 			return
 		}
-		
+
 		switch {
 		case args[0] == "js":
-			h.man.conn.Privmsgf(replyTarget(e), "Unregistered Javsacript handler " + args[1])
+			h.man.conn.Privmsgf(replyTarget(e), "Unregistered Javsacript handler "+args[1])
 			h.man.RemoveId("js-" + args[1])
-			
+
 		case args[0] == "lua":
-			h.man.conn.Privmsgf(replyTarget(e), "Unregistered Lua handler " + args[1])
+			h.man.conn.Privmsgf(replyTarget(e), "Unregistered Lua handler "+args[1])
 			h.man.RemoveId("lua-" + args[1])
-			
+
 		case args[0] == "lisp":
-			h.man.conn.Privmsgf(replyTarget(e), "Unregistered Lisp handler " + args[1])
+			h.man.conn.Privmsgf(replyTarget(e), "Unregistered Lisp handler "+args[1])
 			h.man.RemoveId("lisp-" + args[1])
 		}
-		
+
 	case command == "repl":
 		if len(args) != 1 && (args[0] != "js" || args[0] != "lua" || args[0] != "lisp") {
 			h.man.conn.Privmsgf(replyTarget(e), "Invalid syntax. Usage: !repl <js|lua|lisp>")
 			return
 		}
-		
+
 		h.repl = true
 		h.replType = args[0]
 		h.man.conn.Privmsgf(replyTarget(e), "%s REPL session started.", replTypePretty(h.replType))
@@ -436,8 +436,8 @@ func newJavascriptScript(man *Manager, vm *otto.Otto, fn string) *JavascriptScri
 
 type JavascriptScript struct {
 	man *Manager
-	vm *otto.Otto
-	fn string
+	vm  *otto.Otto
+	fn  string
 }
 
 func (h *JavascriptScript) Id() string {
@@ -464,8 +464,8 @@ func newLuaScript(man *Manager, vm *lua.State, fn string) *LuaScript {
 
 type LuaScript struct {
 	man *Manager
-	vm *lua.State
-	fn string
+	vm  *lua.State
+	fn  string
 }
 
 func (h *LuaScript) Id() string {
@@ -495,7 +495,7 @@ func newLispScript(man *Manager, fn string) *LispScript {
 
 type LispScript struct {
 	man *Manager
-	fn string
+	fn  string
 }
 
 func (h *LispScript) Id() string {
