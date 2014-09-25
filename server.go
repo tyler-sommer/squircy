@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/aarzilli/golua/lua"
+	"github.com/janne/go-lisp/lisp"
 	"github.com/robertkrimen/otto"
 	"github.com/thoj/go-ircevent"
 	"os"
@@ -50,6 +51,7 @@ func NewManager(conn *irc.Connection, config Configuration) *Manager {
 	man.Add(&AliasHandler{make(map[string]string, 4)})
 	man.Add(newJavascriptHandler())
 	man.Add(newLuaHandler())
+	man.Add(newLispHandler())
 
 	return man
 }
@@ -225,4 +227,29 @@ func (h *LuaHandler) Handle(man *Manager, e *irc.Event) {
 	if err != nil {
 		man.conn.Privmsgf(replyTarget(e), err.Error())
 	}
+}
+
+func newLispHandler() *LispHandler {
+	return &LispHandler{}
+}
+
+type LispHandler struct{}
+
+func (h *LispHandler) Id() string {
+	return "lisp"
+}
+
+func (h *LispHandler) Matches(e *irc.Event) bool {
+	return strings.HasPrefix(strings.ToLower(e.Message()), "!lisp")
+}
+
+func (h *LispHandler) Handle(man *Manager, e *irc.Event) {
+	fields := strings.Fields(e.Message())
+	val, err := lisp.EvalString(strings.Join(fields[1:], " "))
+	if err != nil {
+		man.conn.Privmsgf(replyTarget(e), err.Error())
+
+		return
+	}
+	man.conn.Privmsgf(replyTarget(e), val.String())
 }
