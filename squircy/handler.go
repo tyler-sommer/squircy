@@ -190,7 +190,7 @@ func newScriptHandler(man *Manager) *ScriptHandler {
 
 	jsVm := otto.New()
 
-	return &ScriptHandler{man, luaVm, jsVm, false, ""}
+	return &ScriptHandler{man, luaVm, jsVm, false, "", make(map[string]string)}
 }
 
 type ScriptHandler struct {
@@ -199,6 +199,7 @@ type ScriptHandler struct {
 	jsVm     *otto.Otto
 	repl     bool
 	replType string
+	data     map[string]string
 }
 
 func (h *ScriptHandler) Id() string {
@@ -246,24 +247,50 @@ func (h *ScriptHandler) Handle(e *irc.Event) {
 
 		switch {
 		case h.replType == "lua":
-			typenameFn := func(vm *lua.State) int {
+			h.luaVm.Register("typename", func(vm *lua.State) int {
 				o := vm.Typename(int(vm.Type(1)))
 				h.luaVm.PushString(o)
 				return 1
-			}
-			h.luaVm.Register("typename", typenameFn)
-			printFn := func(vm *lua.State) int {
+			})
+			h.luaVm.Register("print", func(vm *lua.State) int {
 				o := vm.ToString(1)
 				h.man.conn.Privmsgf(replyTarget(e), o)
 				return 0
-			}
-			h.luaVm.Register("print", printFn)
+			})
+			h.luaVm.Register("setExternalProperty", func(vm *lua.State) int {
+				key := vm.ToString(1)
+				value := vm.ToString(2)
+				h.data[key] = value
+				return 0
+			})
+			h.luaVm.Register("getExternalProperty", func(vm *lua.State) int {
+				key := vm.ToString(1)
+				if val, ok := h.data[key]; ok {
+					vm.PushString(val)
+					return 1
+				}
+				return 0
+			})
 			err := runUnsafeLua(h.luaVm, msg)
 			if err != nil {
 				h.man.conn.Privmsgf(replyTarget(e), err.Error())
 			}
 
 		case h.replType == "js":
+			h.jsVm.Set("setExternalProperty", func(call otto.FunctionCall) otto.Value {
+				key, _ := call.Argument(0).ToString()
+				value, _ := call.Argument(1).ToString()
+				h.data[key] = value
+				return otto.Value{}
+			})
+			h.jsVm.Set("getExternalProperty", func(call otto.FunctionCall) otto.Value {
+				key, _ := call.Argument(0).ToString()
+				if val, ok := h.data[key]; ok {
+					result, _ := h.jsVm.ToValue(val)
+					return result
+				}
+				return otto.Value{}
+			})
 			value, err := runUnsafeJavascript(h.jsVm, msg)
 			if err != nil {
 				h.man.conn.Privmsgf(replyTarget(e), err.Error())
