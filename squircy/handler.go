@@ -1,13 +1,18 @@
 package squircy
 
 import (
+	"errors"
 	"fmt"
 	"github.com/aarzilli/golua/lua"
 	"github.com/janne/go-lisp/lisp"
 	"github.com/robertkrimen/otto"
 	"github.com/thoj/go-ircevent"
 	"strings"
+	"time"
 )
+
+const maxExecutionTime = 2 // in seconds
+var halt = errors.New("Execution limit exceeded")
 
 func replyTarget(e *irc.Event) string {
 	if strings.HasPrefix(e.Arguments[0], "#") {
@@ -219,7 +224,17 @@ func replTypePretty(replType string) string {
 	return "Unknown"
 }
 
+func scriptRecoveryHandler(h *ScriptHandler, e *irc.Event) {
+	if err := recover(); err != nil {
+		if err == halt {
+			h.man.conn.Privmsgf(replyTarget(e), "Script halted")
+		}
+	}
+}
+
 func (h *ScriptHandler) Handle(e *irc.Event) {
+	defer scriptRecoveryHandler(h, e)
+
 	if h.repl == true {
 		msg := e.Message()
 		if strings.HasPrefix(msg, "!repl end") {
@@ -243,13 +258,13 @@ func (h *ScriptHandler) Handle(e *irc.Event) {
 				return 0
 			}
 			h.luaVm.Register("print", printFn)
-			err := h.luaVm.DoString(msg)
+			err := runUnsafeLua(h.luaVm, msg)
 			if err != nil {
 				h.man.conn.Privmsgf(replyTarget(e), err.Error())
 			}
 
 		case h.replType == "js":
-			value, err := h.jsVm.Run(msg)
+			value, err := runUnsafeJavascript(h.jsVm, msg)
 			if err != nil {
 				h.man.conn.Privmsgf(replyTarget(e), err.Error())
 
@@ -349,8 +364,32 @@ func (h *JavascriptScript) Matches(e *irc.Event) bool {
 	return true
 }
 
+func runUnsafeJavascript(vm *otto.Otto, unsafe string) (otto.Value, error) {
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		if err := recover(); err != nil {
+			if err == halt {
+				fmt.Println("Some code took too long! Stopping after: ", duration)
+				panic(halt)
+			}
+		}
+	}()
+
+	vm.Interrupt = make(chan func(), 1)
+
+	go func() {
+		time.Sleep(maxExecutionTime * time.Second)
+		vm.Interrupt <- func() {
+			panic(halt)
+		}
+	}()
+
+	return vm.Run(unsafe)
+}
+
 func (h *JavascriptScript) Handle(e *irc.Event) {
-	value, err := h.vm.Run(fmt.Sprintf("%s(\"%s\", \"%s\", \"%s\")", h.fn, e.Arguments[0], e.Nick, e.Message()))
+	value, err := runUnsafeJavascript(h.vm, fmt.Sprintf("%s(\"%s\", \"%s\", \"%s\")", h.fn, e.Arguments[0], e.Nick, e.Message()))
 	if err != nil {
 		h.man.conn.Privmsgf(replyTarget(e), err.Error())
 
@@ -377,6 +416,28 @@ func (h *LuaScript) Matches(e *irc.Event) bool {
 	return true
 }
 
+func runUnsafeLua(vm *lua.State, unsafe string) error {
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		if err := recover(); err != nil {
+			if err == halt {
+				fmt.Println("Some code took too long! Stopping after: ", duration)
+				panic(halt)
+			}
+		}
+	}()
+
+	vm.SetExecutionLimit(maxExecutionTime * (1 << 26))
+	err := vm.DoString(unsafe)
+
+	if err.Error() == "Lua execution quantum exceeded" {
+		panic(halt)
+	}
+
+	return err
+}
+
 func (h *LuaScript) Handle(e *irc.Event) {
 	printFn := func(vm *lua.State) int {
 		o := vm.ToString(1)
@@ -384,7 +445,7 @@ func (h *LuaScript) Handle(e *irc.Event) {
 		return 0
 	}
 	h.vm.Register("print", printFn)
-	err := h.vm.DoString(fmt.Sprintf("%s(\"%s\", \"%s\", \"%s\")", h.fn, e.Arguments[0], e.Nick, e.Message()))
+	err := runUnsafeLua(h.vm, fmt.Sprintf("%s(\"%s\", \"%s\", \"%s\")", h.fn, e.Arguments[0], e.Nick, e.Message()))
 	if err != nil {
 		h.man.conn.Privmsgf(replyTarget(e), err.Error())
 	}
