@@ -2,10 +2,13 @@ package main
 
 import (
 	"./squircy"
+	"bufio"
 	"encoding/json"
+	"fmt"
 	"github.com/thoj/go-ircevent"
 	"os"
 	"sync"
+	"time"
 )
 
 func main() {
@@ -23,7 +26,6 @@ func main() {
 
 	conn := irc.IRC(config.Nick, config.Username)
 	conn.Debug = true
-	conn.VerboseCallbackHandler = true
 
 	err = conn.Connect(config.Network)
 	if err != nil {
@@ -48,5 +50,32 @@ func main() {
 	conn.AddCallback("PRIVMSG", matchAndHandle)
 	conn.AddCallback("NOTICE", matchAndHandle)
 
-	conn.Loop()
+	go conn.Loop()
+
+	bin := bufio.NewReader(os.Stdin)
+	for {
+		switch str, _ := bin.ReadString('\n'); {
+		case str == "exit\n" || str == "quit\n":
+			conn.Quit()
+			time.Sleep(2 * time.Second)
+			fmt.Println("Exiting")
+			return
+
+		case str == "debug\n":
+			was := conn.VerboseCallbackHandler
+			conn.VerboseCallbackHandler = !was
+			if was {
+				fmt.Println("Debug DISABLED")
+			} else {
+				fmt.Println("Debug ENABLED")
+			}
+
+		default:
+			fmt.Println(`Unknown input. Commands:
+
+exit		Quits IRC and exits the program
+debug		Toggles debug
+`)
+		}
+	}
 }
