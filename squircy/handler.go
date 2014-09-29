@@ -227,6 +227,7 @@ func replTypePretty(replType string) string {
 
 func scriptRecoveryHandler(h *ScriptHandler, e *irc.Event) {
 	if err := recover(); err != nil {
+		fmt.Println("An error occurred", err)
 		if err == halt {
 			h.man.conn.Privmsgf(replyTarget(e), "Script halted")
 		}
@@ -291,13 +292,17 @@ func (h *ScriptHandler) Handle(e *irc.Event) {
 				}
 				return otto.Value{}
 			})
-			value, err := runUnsafeJavascript(h.jsVm, msg)
+			h.jsVm.Set("print", func(call otto.FunctionCall) otto.Value {
+				message, _ := call.Argument(0).ToString()
+				h.man.conn.Privmsgf(replyTarget(e), message)
+				return otto.Value{}
+			})
+			_, err := runUnsafeJavascript(h.jsVm, msg)
 			if err != nil {
 				h.man.conn.Privmsgf(replyTarget(e), err.Error())
 
 				return
 			}
-			h.man.conn.Privmsgf(replyTarget(e), value.String())
 
 		case h.replType == "lisp":
 			val, err := lisp.EvalString(msg)
@@ -398,8 +403,8 @@ func runUnsafeJavascript(vm *otto.Otto, unsafe string) (otto.Value, error) {
 		if err := recover(); err != nil {
 			if err == halt {
 				fmt.Println("Some code took too long! Stopping after: ", duration)
-				panic(halt)
 			}
+			panic(err)
 		}
 	}()
 
@@ -416,13 +421,17 @@ func runUnsafeJavascript(vm *otto.Otto, unsafe string) (otto.Value, error) {
 }
 
 func (h *JavascriptScript) Handle(e *irc.Event) {
-	value, err := runUnsafeJavascript(h.vm, fmt.Sprintf("%s(\"%s\", \"%s\", \"%s\")", h.fn, e.Arguments[0], e.Nick, e.Message()))
+	h.vm.Set("print", func(call otto.FunctionCall) otto.Value {
+		message, _ := call.Argument(0).ToString()
+		h.man.conn.Privmsgf(replyTarget(e), message)
+		return otto.Value{}
+	})
+	_, err := runUnsafeJavascript(h.vm, fmt.Sprintf("%s(\"%s\", \"%s\", \"%s\")", h.fn, e.Arguments[0], e.Nick, e.Message()))
 	if err != nil {
 		h.man.conn.Privmsgf(replyTarget(e), err.Error())
 
 		return
 	}
-	h.man.conn.Privmsgf(replyTarget(e), value.String())
 }
 
 func newLuaScript(man *Manager, vm *lua.State, fn string) *LuaScript {
@@ -450,8 +459,8 @@ func runUnsafeLua(vm *lua.State, unsafe string) error {
 		if err := recover(); err != nil {
 			if err == halt {
 				fmt.Println("Some code took too long! Stopping after: ", duration)
-				panic(halt)
 			}
+			panic(err)
 		}
 	}()
 
@@ -466,12 +475,11 @@ func runUnsafeLua(vm *lua.State, unsafe string) error {
 }
 
 func (h *LuaScript) Handle(e *irc.Event) {
-	printFn := func(vm *lua.State) int {
+	h.vm.Register("print", func(vm *lua.State) int {
 		o := vm.ToString(1)
 		h.man.conn.Privmsgf(replyTarget(e), o)
 		return 0
-	}
-	h.vm.Register("print", printFn)
+	})
 	err := runUnsafeLua(h.vm, fmt.Sprintf("%s(\"%s\", \"%s\", \"%s\")", h.fn, e.Arguments[0], e.Nick, e.Message()))
 	if err != nil {
 		h.man.conn.Privmsgf(replyTarget(e), err.Error())
