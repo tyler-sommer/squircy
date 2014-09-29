@@ -184,14 +184,7 @@ func (h *LispHandler) Handle(e *irc.Event) {
 	h.man.conn.Privmsgf(replyTarget(e), val.String())
 }
 
-func newScriptHandler(man *Manager) *ScriptHandler {
-	luaVm := lua.NewState()
-	luaVm.OpenLibs()
-
-	jsVm := otto.New()
-
-	return &ScriptHandler{man, luaVm, jsVm, false, "", make(map[string]string)}
-}
+type ScriptDatastore map[string]string
 
 type ScriptHandler struct {
 	man      *Manager
@@ -199,7 +192,16 @@ type ScriptHandler struct {
 	jsVm     *otto.Otto
 	repl     bool
 	replType string
-	data     map[string]string
+	data     ScriptDatastore
+}
+
+func newScriptHandler(man *Manager) *ScriptHandler {
+	luaVm := lua.NewState()
+	luaVm.OpenLibs()
+
+	jsVm := otto.New()
+
+	return &ScriptHandler{man, luaVm, jsVm, false, "", make(ScriptDatastore)}
 }
 
 func (h *ScriptHandler) Id() string {
@@ -305,7 +307,7 @@ func (h *ScriptHandler) Handle(e *irc.Event) {
 			}
 
 		case h.replType == "lisp":
-			val, err := lisp.EvalString(msg)
+			val, err := runUnsafeLisp(msg)
 			if err != nil {
 				h.man.conn.Privmsgf(replyTarget(e), err.Error())
 
@@ -503,12 +505,19 @@ func (h *LispScript) Matches(e *irc.Event) bool {
 	return true
 }
 
+func runUnsafeLisp(unsafe string) (lisp.Value, error) {
+	return lisp.EvalString(unsafe)
+}
+
 func (h *LispScript) Handle(e *irc.Event) {
-	val, err := lisp.EvalString(fmt.Sprintf("(%s \"%s\" \"%s\" \"%s\")", h.fn, e.Arguments[0], e.Nick, e.Message()))
-	if err != nil {
+	_, err := runUnsafeLisp(fmt.Sprintf("(%s \"%s\" \"%s\" \"%s\")", h.fn, e.Arguments[0], e.Nick, e.Message()))
+
+	if err == halt {
+		panic(err)
+
+	} else if err != nil {
 		h.man.conn.Privmsgf(replyTarget(e), err.Error())
 
 		return
 	}
-	h.man.conn.Privmsgf(replyTarget(e), val.String())
 }
