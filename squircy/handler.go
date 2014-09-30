@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/aarzilli/golua/lua"
-	"github.com/janne/go-lisp/lisp"
+	"github.com/veonik/go-lisp/lisp"
 	"github.com/robertkrimen/otto"
 	"github.com/thoj/go-ircevent"
 	"strings"
@@ -220,13 +220,37 @@ func (h *ScriptHandler) Handle(e *irc.Event) {
 			}
 
 		case h.replType == "lisp":
-			val, err := runUnsafeLisp(msg)
+			lisp.AddBuiltin("print", func(vars ...lisp.Value) (lisp.Value, error) {
+				if len(vars) == 1 {
+					h.man.conn.Privmsgf(replyTarget(e), vars[0].String())
+				}
+				return lisp.Nil, nil
+			})
+			lisp.AddBuiltin("setex", func(vars ...lisp.Value) (lisp.Value, error) {
+				if len(vars) != 2 {
+					return lisp.Nil, nil
+				}
+				key := vars[0].String()
+				value := vars[1].String()
+				h.data[key] = value
+				return lisp.Nil, nil
+			})
+			lisp.AddBuiltin("getex", func(vars ...lisp.Value) (lisp.Value, error) {
+				if len(vars) != 1 {
+					return lisp.Nil, nil
+				}
+				key := vars[0].String()
+				if val, ok := h.data[key]; ok {
+					return lisp.StringValue(val), nil
+				}
+				return lisp.Nil, nil
+			})
+			_, err := runUnsafeLisp(msg)
 			if err != nil {
 				h.man.conn.Privmsgf(replyTarget(e), err.Error())
 
 				return
 			}
-			h.man.conn.Privmsgf(replyTarget(e), val.String())
 		}
 
 		return
@@ -419,6 +443,19 @@ func (h *LispScript) Matches(e *irc.Event) bool {
 }
 
 func runUnsafeLisp(unsafe string) (lisp.Value, error) {
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		if err := recover(); err != nil {
+			if err.(error).Error() == "Execution limit exceeded" {
+				fmt.Println("Some code took too long! Stopping after: ", duration)
+				panic(halt)
+			}
+			panic(err)
+		}
+	}()
+
+	lisp.SetExecutionLimit(maxExecutionTime * (1 << 19))
 	return lisp.EvalString(unsafe)
 }
 
