@@ -4,9 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"github.com/aarzilli/golua/lua"
-	"github.com/veonik/go-lisp/lisp"
 	"github.com/robertkrimen/otto"
 	"github.com/thoj/go-ircevent"
+	"github.com/veonik/go-lisp/lisp"
 	"strings"
 	"time"
 )
@@ -460,6 +460,12 @@ func runUnsafeLisp(unsafe string) (lisp.Value, error) {
 }
 
 func (h *LispScript) Handle(e *irc.Event) {
+	lisp.AddBuiltin("print", func(vars ...lisp.Value) (lisp.Value, error) {
+		if len(vars) == 1 {
+			h.man.conn.Privmsgf(replyTarget(e), vars[0].String())
+		}
+		return lisp.Nil, nil
+	})
 	_, err := runUnsafeLisp(fmt.Sprintf("(%s \"%s\" \"%s\" \"%s\")", h.fn, e.Arguments[0], e.Nick, e.Message()))
 
 	if err == halt {
