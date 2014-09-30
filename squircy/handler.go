@@ -140,17 +140,17 @@ func replTypePretty(replType string) string {
 	return "Unknown"
 }
 
-func scriptRecoveryHandler(h *ScriptHandler, e *irc.Event) {
+func scriptRecoveryHandler(man *Manager, e *irc.Event) {
 	if err := recover(); err != nil {
 		fmt.Println("An error occurred", err)
 		if err == halt {
-			h.man.conn.Privmsgf(replyTarget(e), "Script halted")
+			man.conn.Privmsgf(replyTarget(e), "Script halted")
 		}
 	}
 }
 
 func (h *ScriptHandler) Handle(e *irc.Event) {
-	defer scriptRecoveryHandler(h, e)
+	defer scriptRecoveryHandler(h.man, e)
 
 	if h.repl == true {
 		msg := e.Message()
@@ -360,6 +360,8 @@ func runUnsafeJavascript(vm *otto.Otto, unsafe string) (otto.Value, error) {
 }
 
 func (h *JavascriptScript) Handle(e *irc.Event) {
+	defer scriptRecoveryHandler(h.man, e)
+
 	h.vm.Set("print", func(call otto.FunctionCall) otto.Value {
 		message, _ := call.Argument(0).ToString()
 		h.man.conn.Privmsgf(replyTarget(e), message)
@@ -414,6 +416,8 @@ func runUnsafeLua(vm *lua.State, unsafe string) error {
 }
 
 func (h *LuaScript) Handle(e *irc.Event) {
+	defer scriptRecoveryHandler(h.man, e)
+
 	h.vm.Register("print", func(vm *lua.State) int {
 		o := vm.ToString(1)
 		h.man.conn.Privmsgf(replyTarget(e), o)
@@ -460,6 +464,8 @@ func runUnsafeLisp(unsafe string) (lisp.Value, error) {
 }
 
 func (h *LispScript) Handle(e *irc.Event) {
+	defer scriptRecoveryHandler(h.man, e)
+
 	lisp.SetHandler("print", func(vars ...lisp.Value) (lisp.Value, error) {
 		if len(vars) == 1 {
 			h.man.conn.Privmsgf(replyTarget(e), vars[0].String())
