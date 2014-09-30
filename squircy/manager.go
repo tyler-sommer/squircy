@@ -32,9 +32,6 @@ func NewManager(conn *irc.Connection, config Configuration) *Manager {
 
 	man.Add(newNickservHandler(man))
 	man.Add(newAliasHandler(man))
-	man.Add(newJavascriptHandler(man))
-	man.Add(newLuaHandler(man))
-	man.Add(newLispHandler(man))
 	man.Add(newScriptHandler(man))
 
 	return man
