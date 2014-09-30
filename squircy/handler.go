@@ -220,13 +220,13 @@ func (h *ScriptHandler) Handle(e *irc.Event) {
 			}
 
 		case h.replType == "lisp":
-			lisp.AddBuiltin("print", func(vars ...lisp.Value) (lisp.Value, error) {
+			lisp.SetHandler("print", func(vars ...lisp.Value) (lisp.Value, error) {
 				if len(vars) == 1 {
 					h.man.conn.Privmsgf(replyTarget(e), vars[0].String())
 				}
 				return lisp.Nil, nil
 			})
-			lisp.AddBuiltin("setex", func(vars ...lisp.Value) (lisp.Value, error) {
+			lisp.SetHandler("setex", func(vars ...lisp.Value) (lisp.Value, error) {
 				if len(vars) != 2 {
 					return lisp.Nil, nil
 				}
@@ -235,7 +235,7 @@ func (h *ScriptHandler) Handle(e *irc.Event) {
 				h.data[key] = value
 				return lisp.Nil, nil
 			})
-			lisp.AddBuiltin("getex", func(vars ...lisp.Value) (lisp.Value, error) {
+			lisp.SetHandler("getex", func(vars ...lisp.Value) (lisp.Value, error) {
 				if len(vars) != 1 {
 					return lisp.Nil, nil
 				}
@@ -460,7 +460,7 @@ func runUnsafeLisp(unsafe string) (lisp.Value, error) {
 }
 
 func (h *LispScript) Handle(e *irc.Event) {
-	lisp.AddBuiltin("print", func(vars ...lisp.Value) (lisp.Value, error) {
+	lisp.SetHandler("print", func(vars ...lisp.Value) (lisp.Value, error) {
 		if len(vars) == 1 {
 			h.man.conn.Privmsgf(replyTarget(e), vars[0].String())
 		}
