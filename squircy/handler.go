@@ -455,7 +455,7 @@ func runUnsafeLisp(unsafe string) (lisp.Value, error) {
 		}
 	}()
 
-	lisp.SetExecutionLimit(maxExecutionTime * (1 << 19))
+	lisp.SetExecutionLimit(maxExecutionTime * (1 << 15))
 	return lisp.EvalString(unsafe)
 }
 
