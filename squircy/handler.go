@@ -7,6 +7,8 @@ import (
 	"github.com/robertkrimen/otto"
 	"github.com/thoj/go-ircevent"
 	"github.com/veonik/go-lisp/lisp"
+	"io/ioutil"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -114,7 +116,19 @@ func newScriptHandler(man *Manager) *ScriptHandler {
 
 	jsVm := otto.New()
 
-	return &ScriptHandler{man, luaVm, jsVm, false, "", make(ScriptDatastore)}
+	h := &ScriptHandler{man, luaVm, jsVm, false, "", make(ScriptDatastore)}
+
+	client := &httpHelper{}
+	cres, _ := h.jsVm.ToValue(client)
+	h.jsVm.Set("Http", cres)
+	db := &dataHelper{make(map[string]interface{})}
+	dres, _ := h.jsVm.ToValue(db)
+	h.jsVm.Set("Data", dres)
+	irc := &ircHelper{h.man.conn}
+	ires, _ := h.jsVm.ToValue(irc)
+	h.jsVm.Set("Irc", ires)
+
+	return h
 }
 
 func (h *ScriptHandler) Id() string {
@@ -147,6 +161,53 @@ func scriptRecoveryHandler(man *Manager, e *irc.Event) {
 			man.conn.Privmsgf(replyTarget(e), "Script halted")
 		}
 	}
+}
+
+type httpHelper struct{}
+
+func (client *httpHelper) Get(url string) string {
+	resp, err := http.Get(url)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return ""
+	}
+	return string(body)
+}
+
+type dataHelper struct {
+	d map[string]interface{}
+}
+
+func (db *dataHelper) Get(key string) interface{} {
+	if val, ok := db.d[key]; ok {
+		return val
+	}
+
+	return nil
+}
+
+func (db *dataHelper) Set(key string, val interface{}) {
+	db.d[key] = val
+}
+
+type ircHelper struct {
+	conn *irc.Connection
+}
+
+func (irc *ircHelper) Privmsg(target, message string) {
+	irc.conn.Privmsg(target, message)
+}
+
+func (irc *ircHelper) Join(target string) {
+	irc.conn.Join(target)
+}
+
+func (irc *ircHelper) Part(target string) {
+	irc.conn.Part(target)
 }
 
 func (h *ScriptHandler) Handle(e *irc.Event) {
@@ -193,20 +254,6 @@ func (h *ScriptHandler) Handle(e *irc.Event) {
 			}
 
 		case h.replType == "js":
-			h.jsVm.Set("setExternalProperty", func(call otto.FunctionCall) otto.Value {
-				key, _ := call.Argument(0).ToString()
-				value, _ := call.Argument(1).ToString()
-				h.data[key] = value
-				return otto.Value{}
-			})
-			h.jsVm.Set("getExternalProperty", func(call otto.FunctionCall) otto.Value {
-				key, _ := call.Argument(0).ToString()
-				if val, ok := h.data[key]; ok {
-					result, _ := h.jsVm.ToValue(val)
-					return result
-				}
-				return otto.Value{}
-			})
 			h.jsVm.Set("print", func(call otto.FunctionCall) otto.Value {
 				message, _ := call.Argument(0).ToString()
 				h.man.conn.Privmsgf(replyTarget(e), message)
