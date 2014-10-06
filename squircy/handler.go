@@ -261,7 +261,7 @@ func (h *ScriptHandler) Handle(e *irc.Event) {
 		break
 
 	case command == "register":
-		if len(args) != 2 && (args[0] != "js" || args[0] != "lua" || args[0] != "lisp") {
+		if len(args) != 2 && args[0] != "js" && args[0] != "lua" && args[0] != "lisp" {
 			h.man.conn.Privmsgf(replyTarget(e), "Invalid syntax. Usage: !register <js|lua|lisp> <fn name>")
 
 			return
@@ -285,7 +285,7 @@ func (h *ScriptHandler) Handle(e *irc.Event) {
 		}
 
 	case command == "unregister":
-		if len(args) != 2 && (args[0] != "js" || args[0] != "lua" || args[0] != "lisp") {
+		if len(args) != 2 && args[0] != "js" && args[0] != "lua" && args[0] != "lisp" {
 			h.man.conn.Privmsgf(replyTarget(e), "Invalid syntax. Usage: !unregister <js|lua|lisp> <fn name>")
 
 			return
@@ -306,7 +306,7 @@ func (h *ScriptHandler) Handle(e *irc.Event) {
 		}
 
 	case command == "repl":
-		if len(args) != 1 && (args[0] != "js" || args[0] != "lua" || args[0] != "lisp") {
+		if len(args) != 1 && args[0] != "js" && args[0] != "lua" && args[0] != "lisp" {
 			h.man.conn.Privmsgf(replyTarget(e), "Invalid syntax. Usage: !repl <js|lua|lisp>")
 			return
 		}
